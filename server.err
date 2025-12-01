@@ -1,0 +1,14 @@
+WARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://10.10.20.99:5000
+Press CTRL+C to quit
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 102-136-927
+127.0.0.1 - - [01/Dec/2025 14:04:08] "POST /generate HTTP/1.1" 200 -
+127.0.0.1 - - [01/Dec/2025 14:04:34] "POST /generate HTTP/1.1" 200 -
+ * Detected change in 'C:\\Users\\Diksh\\summer training\\ai-learning-pods\\backend\\transcript_fetcher.py', reloading
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 102-136-927
