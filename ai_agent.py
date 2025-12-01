@@ -1,4 +1,4 @@
-from transcript_fetcher import get_transcript_for_youtube
+
 from gemini_client import generate_materials, generate_materials_fallback, call_gemini, _parse_model_output, local_generate_summary, local_generate_flashcards, local_generate_quiz
 from generate_pdf import create_study_pdf
 from crew_integration import orchestrate_agent_flow
@@ -108,15 +108,15 @@ def generate_study_pack(topic: str, youtube_url: str = None, transcript_text: st
     """
     transcript = transcript_text or ''
     
-    # If we have a YouTube URL, try to fetch it
-    if youtube_url and not transcript_text:
-        try:
-            transcript = get_transcript_for_youtube(youtube_url)
-        except Exception as e:
-            return {
-                'topic': topic,
-                'error': f'Failed to fetch YouTube transcript: {str(e)}'
-            }
+    # # If we have a YouTube URL, try to fetch it
+    # if youtube_url and not transcript_text:
+    #     try:
+    #         transcript = get_transcript_for_youtube(youtube_url)
+    #     except Exception as e:
+    #         return {
+    #             'topic': topic,
+    #             'error': f'Failed to fetch YouTube transcript: {str(e)}'
+    #         }
     
     # If still no transcript, generate content from topic using Gemini
     if not transcript.strip():
