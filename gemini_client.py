@@ -16,8 +16,9 @@ except Exception:
     _HAS_GOOGLE_CLIENT = False
 
 
-API_KEY = os.environ.get('GOOGLE_API_KEY')
-MODEL = os.environ.get('GEN_MODEL', 'gemini-2.5-flash')
+API_KEY = os.getenv("GOOGLE_API_KEY")
+
+MODEL = os.environ.get('GEN_MODEL', 'gemini-2.0-flash')
 
 
 def _extract_json(text: str) -> Optional[str]:
