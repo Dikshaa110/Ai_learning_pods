@@ -385,7 +385,7 @@ except ImportError:
     _HAS_GOOGLE_CLIENT = False
 
 API_KEY = os.getenv("GOOGLE_API_KEY")
-MODEL = os.getenv("GEN_MODEL", "gemini-2.5-flash")  # use 2.5 flash
+MODEL = os.getenv("GEN_MODEL", "gemini-2.0-flash")  # use 2.5 flash
 
 if _HAS_GOOGLE_CLIENT and API_KEY:
     genai.configure(api_key=API_KEY)
