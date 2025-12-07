@@ -373,125 +373,108 @@
 
 import os
 import json
-import re
 import time
+import re
 from typing import Optional
 from collections import Counter
 
+import requests
+
+# Try to import official Google Generative AI client if available
+_HAS_GOOGLE_CLIENT = False
 try:
     import google.generativeai as genai
     _HAS_GOOGLE_CLIENT = True
-except ImportError:
+except Exception:
     _HAS_GOOGLE_CLIENT = False
 
+# Load API key and model
 API_KEY = os.getenv("GOOGLE_API_KEY")
-MODEL = os.getenv("GEN_MODEL", "gemini-2.0-flash")  # use 2.5 flash
-
-if _HAS_GOOGLE_CLIENT and API_KEY:
-    genai.configure(api_key=API_KEY)
+MODEL = os.environ.get('GEN_MODEL', 'gemini-2.5-flash')
 
 
-# ------------------- Local fallback -------------------
+# -----------------------
+# Local fallback methods
+# -----------------------
 def _sentences(text):
     return [x.strip() for x in re.split(r'(?<=[.!?]) +', text) if x.strip()]
-
 
 def local_generate_summary(text: str, topic: str) -> str:
     sentences = _sentences(text)
     if not sentences:
-        return "No transcript available to summarize."
+        return "No transcript available."
     words = [w.lower() for w in re.findall(r"\w+", text) if len(w) > 3]
     freq = Counter(words)
     def score(sent):
         return sum(freq.get(w.lower(), 0) for w in re.findall(r"\w+", sent))
-    s_sorted = sorted(sentences, key=score, reverse=True)
-    top = s_sorted[:6]
-    return " ".join(top)
-
+    top_sentences = sorted(sentences, key=score, reverse=True)[:6]
+    return ' '.join(top_sentences)
 
 def local_generate_flashcards(text: str, topic: str, n=10):
     sentences = _sentences(text)
     cards = []
     for i, s in enumerate(sentences[:n]):
-        q = f"What is a key point about '{topic}' from this sentence?"
-        a = s
-        cards.append({'q': q, 'a': a})
+        cards.append({'q': f"What is a key point about '{topic}'?", 'a': s})
     return cards
-
 
 def local_generate_quiz(text: str, topic: str, n=10):
     sentences = _sentences(text)
     quiz = []
     for i in range(min(n, len(sentences))):
         correct = sentences[i]
-        wrong = sentences[i+1] if i+1 < len(sentences) else sentences[0]
-        ques = f"Which statement best summarizes: '{topic}' (pick the best)"
-        options = [correct, wrong]
-        quiz.append({'question': ques, 'options': options, 'answer': 0, 'explanation': correct})
+        wrong = sentences[i+1] if i+1 < len(sentences) else (sentences[0] if sentences else 'No data')
+        quiz.append({
+            'question': f"Which statement best summarizes '{topic}'?",
+            'options': [correct, wrong],
+            'answer': 0,
+            'explanation': correct
+        })
     return quiz
 
-
 def generate_materials_fallback(transcript: str, topic: str):
-    summary = local_generate_summary(transcript, topic)
-    flashcards = local_generate_flashcards(transcript, topic, n=12)
-    quiz = local_generate_quiz(transcript, topic, n=10)
-    study_plan = {
-        'levels': [
-            {'level': 'Beginner', 'duration_days': 7, 'focus': 'Key concepts and definitions'},
-            {'level': 'Intermediate', 'duration_days': 14, 'focus': 'Practice problems and examples'},
-            {'level': 'Mastery', 'duration_days': 30, 'focus': 'Projects and advanced topics'}
-        ]
-    }
     return {
-        'summary': summary,
-        'flashcards': flashcards,
-        'quiz': quiz,
-        'study_plan': study_plan
+        'summary': local_generate_summary(transcript, topic),
+        'flashcards': local_generate_flashcards(transcript, topic),
+        'quiz': local_generate_quiz(transcript, topic),
+        'study_plan': {
+            'levels': [
+                {'level': 'Beginner', 'duration_days': 7, 'focus': 'Key concepts and definitions'},
+                {'level': 'Intermediate', 'duration_days': 14, 'focus': 'Practice problems and examples'},
+                {'level': 'Mastery', 'duration_days': 30, 'focus': 'Projects and advanced topics'}
+            ]
+        }
     }
 
-
-# ------------------- JSON Parsing -------------------
-def _extract_json(text: str) -> Optional[str]:
-    if not text:
-        return None
-    start = text.find('{')
-    end = text.rfind('}')
-    if start != -1 and end != -1 and end > start:
-        return text[start:end+1]
-    return None
+# -----------------------
+# Helper: chunk text
+# -----------------------
+def chunk_text(text, max_sentences=5):
+    sentences = _sentences(text)
+    for i in range(0, len(sentences), max_sentences):
+        yield ' '.join(sentences[i:i+max_sentences])
 
 
-def _parse_model_output(text: str):
-    try:
-        return json.loads(text)
-    except Exception:
-        j = _extract_json(text)
-        if j:
-            try:
-                return json.loads(j)
-            except Exception:
-                return None
-    return None
-
-
-# ------------------- Build Prompt -------------------
+# -----------------------
+# Build Gemini prompt
+# -----------------------
 def _build_prompt(transcript: str, topic: str) -> str:
     header = (
         "You are a study-pack generator.\n"
-        "RETURN ONLY a single VALID JSON object. No text outside the JSON. No markdown.\n"
-        "Schema:\n"
-        "{'summary': string, 'flashcards': [{'q': string, 'a': string}], 'quiz': [{'question': string, 'options': [string], 'answer': int, 'explanation': string}], 'study_plan': {'levels': [{'level': string, 'duration_days': int, 'focus': string}]}}\n\n"
+        "RETURN ONLY a single VALID JSON object with keys: summary, flashcards, quiz, study_plan.\n"
     )
-    prompt = header + f"TRANSCRIPT:\n{transcript}\nTOPIC: {topic}\nRETURN JSON."
+    prompt = header
+    prompt += f"TRANSCRIPT:\n{transcript}\nTOPIC: {topic}\n"
     return prompt
 
 
-# ------------------- Gemini Calls -------------------
-def _call_google_client(prompt: str, max_tokens: int = 1024) -> Optional[str]:
+# -----------------------
+# Call Gemini API
+# -----------------------
+def _call_google_client(prompt: str, max_tokens: int = 512) -> Optional[str]:
     if not _HAS_GOOGLE_CLIENT or not API_KEY:
         return None
-
     try:
+        genai.configure(api_key=API_KEY)
         model = genai.GenerativeModel(MODEL)
         resp = model.generate_content({
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
@@ -501,12 +484,9 @@ def _call_google_client(prompt: str, max_tokens: int = 1024) -> Optional[str]:
     except Exception:
         return None
 
-
-def _call_rest(prompt: str, max_tokens: int = 1024) -> Optional[str]:
+def _call_rest(prompt: str, max_tokens: int = 512) -> Optional[str]:
     if not API_KEY:
         return None
-
-    import requests
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL}:generateContent?key={API_KEY}"
     payload = {
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
@@ -519,47 +499,77 @@ def _call_rest(prompt: str, max_tokens: int = 1024) -> Optional[str]:
     data = resp.json()
     return data["candidates"][0]["content"]["parts"][0].get("text", "")
 
-
-def call_gemini(prompt: str, max_tokens: int = 1024, retries: int = 2) -> Optional[str]:
+def call_gemini(prompt: str, max_tokens: int = 512, retries: int = 2) -> Optional[str]:
     last_exc = None
-    for attempt in range(retries):
+    for attempt in range(1, retries + 1):
         try:
-            out = None
             if _HAS_GOOGLE_CLIENT and API_KEY:
-                out = _call_google_client(prompt, max_tokens)
-            if not out:
-                out = _call_rest(prompt, max_tokens)
-            if out:
-                return out
+                out = _call_google_client(prompt, max_tokens=max_tokens)
+                if out: return out
+            out = _call_rest(prompt, max_tokens=max_tokens)
+            if out: return out
         except Exception as e:
             last_exc = e
-            time.sleep(0.5 * (attempt+1))
-    if last_exc:
-        raise last_exc
+            time.sleep(0.5 * attempt)
+    if last_exc: raise last_exc
     return None
 
 
-# ------------------- Main Generator -------------------
+# -----------------------
+# Parse model output JSON
+# -----------------------
+def _parse_model_output(text: str):
+    try:
+        return json.loads(text)
+    except Exception:
+        start = text.find('{')
+        end = text.rfind('}')
+        if start != -1 and end != -1 and end > start:
+            try:
+                return json.loads(text[start:end+1])
+            except Exception:
+                return None
+    return None
+
+
+# -----------------------
+# Main: generate materials with chunking
+# -----------------------
 def generate_materials(transcript: str, topic: str):
     if not API_KEY:
         return generate_materials_fallback(transcript, topic)
 
-    prompt = _build_prompt(transcript, topic)
-    try:
-        out = call_gemini(prompt, max_tokens=2048)
-    except Exception:
-        return generate_materials_fallback(transcript, topic)
+    results = []
+    for chunk in chunk_text(transcript, max_sentences=5):
+        prompt = _build_prompt(chunk, topic)
+        try:
+            out = call_gemini(prompt, max_tokens=512)
+        except Exception:
+            out = None
+        parsed = _parse_model_output(out) if out else None
+        if not parsed:
+            parsed = generate_materials_fallback(chunk, topic)
+        results.append(parsed)
 
-    if not out:
-        return generate_materials_fallback(transcript, topic)
+    # Merge all chunks
+    summary = ' '.join([r.get('summary','') for r in results])
+    flashcards = sum([r.get('flashcards',[]) for r in results], [])
+    quiz = sum([r.get('quiz',[]) for r in results], [])
+    study_plan = results[0].get('study_plan', {}) if results else {}
 
-    parsed = _parse_model_output(out)
-    if isinstance(parsed, dict):
-        parsed.setdefault('summary', parsed.get('summary') or '')
-        parsed.setdefault('flashcards', parsed.get('flashcards') or [])
-        parsed.setdefault('quiz', parsed.get('quiz') or [])
-        parsed.setdefault('study_plan', parsed.get('study_plan') or {})
-        return parsed
+    return {
+        'summary': summary,
+        'flashcards': flashcards,
+        'quiz': quiz,
+        'study_plan': study_plan
+    }
 
-    # fallback
-    return generate_materials_fallback(transcript, topic)
+
+# -----------------------
+# Quick test
+# -----------------------
+if __name__ == "__main__":
+    transcript = "Java is an OOP language. It uses classes and objects. Encapsulation hides data. Inheritance allows code reuse. Polymorphism allows multiple forms."
+    topic = "Java OOP"
+    materials = generate_materials(transcript, topic)
+    print(json.dumps(materials, indent=2))
