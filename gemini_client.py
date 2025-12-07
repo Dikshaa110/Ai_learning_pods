@@ -171,91 +171,142 @@ def _build_prompt(transcript: str, topic: str) -> str:
     return prompt
 
 
+# def _call_google_client(prompt: str, max_tokens: int = 1024) -> Optional[str]:
+#     """Try calling the official google.generativeai client when available."""
+#     if not _HAS_GOOGLE_CLIENT or not API_KEY:
+#         return None
+
+#     try:
+#         # configure client
+#         try:
+#             genai.configure(api_key=API_KEY)
+#         except Exception:
+#             pass
+
+#         # Some versions of the library expose different helper names; try common ones
+#         # Preferred approach: try high-level helpers, then fall back to GenerativeModel.
+#         try:
+#             resp = genai.generate_text(model=MODEL, prompt=prompt, max_output_tokens=max_tokens)
+#             # extract text candidate
+#             if isinstance(resp, dict):
+#                 return resp.get('candidates', [{}])[0].get('content') or resp.get('output')
+#             return str(resp)
+#         except Exception:
+#             pass
+
+#         try:
+#             resp = genai.text.generate(model=MODEL, prompt=prompt, max_output_tokens=max_tokens)
+#             if isinstance(resp, dict):
+#                 return resp.get('candidates', [{}])[0].get('content') or resp.get('output')
+#             return str(resp)
+#         except Exception:
+#             pass
+
+#         # Newer client versions provide a GenerativeModel class with `generate_content`.
+#         try:
+#             gen = genai.GenerativeModel(MODEL)
+#             resp = gen.generate_content(prompt)
+
+#             # Try to extract readable text from the response
+#             try:
+#                 # response.result.candidates -> candidate.content.parts[].text
+#                 parts = resp.result.candidates[0].content.parts
+#                 text = ''.join([getattr(p, 'text', str(p)) for p in parts])
+#                 return text
+#             except Exception:
+#                 return str(resp)
+#         except Exception:
+#             return None
+#     except Exception:
+#         return None
 def _call_google_client(prompt: str, max_tokens: int = 1024) -> Optional[str]:
-    """Try calling the official google.generativeai client when available."""
     if not _HAS_GOOGLE_CLIENT or not API_KEY:
         return None
-
+    
     try:
-        # configure client
-        try:
-            genai.configure(api_key=API_KEY)
-        except Exception:
-            pass
+        genai.configure(api_key=API_KEY)
 
-        # Some versions of the library expose different helper names; try common ones
-        # Preferred approach: try high-level helpers, then fall back to GenerativeModel.
-        try:
-            resp = genai.generate_text(model=MODEL, prompt=prompt, max_output_tokens=max_tokens)
-            # extract text candidate
-            if isinstance(resp, dict):
-                return resp.get('candidates', [{}])[0].get('content') or resp.get('output')
-            return str(resp)
-        except Exception:
-            pass
+        model = genai.GenerativeModel(MODEL)
+        resp = model.generate_content({
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [{"text": prompt}]
+                }
+            ],
+            "generation_config": {
+                "max_output_tokens": max_tokens
+            }
+        })
 
-        try:
-            resp = genai.text.generate(model=MODEL, prompt=prompt, max_output_tokens=max_tokens)
-            if isinstance(resp, dict):
-                return resp.get('candidates', [{}])[0].get('content') or resp.get('output')
-            return str(resp)
-        except Exception:
-            pass
-
-        # Newer client versions provide a GenerativeModel class with `generate_content`.
-        try:
-            gen = genai.GenerativeModel(MODEL)
-            resp = gen.generate_content(prompt)
-
-            # Try to extract readable text from the response
-            try:
-                # response.result.candidates -> candidate.content.parts[].text
-                parts = resp.result.candidates[0].content.parts
-                text = ''.join([getattr(p, 'text', str(p)) for p in parts])
-                return text
-            except Exception:
-                return str(resp)
-        except Exception:
-            return None
+        return resp.text
     except Exception:
         return None
 
 
+
+# def _call_rest(prompt: str, max_tokens: int = 1024) -> Optional[str]:
+#     if not API_KEY:
+#         return None
+#     url = f"https://generativelanguage.googleapis.com/v1beta2/models/{MODEL}:generateText?key={API_KEY}"
+#     payload = {
+#         'prompt': prompt,
+#         'maxOutputTokens': max_tokens,
+#     }
+#     headers = {'Content-Type': 'application/json'}
+#     resp = requests.post(url, json=payload, headers=headers, timeout=30)
+#     if resp.status_code != 200:
+#         raise Exception(f'Gemini API error: {resp.status_code} {resp.text}')
+#     data = resp.json()
+#     return data.get('candidates', [{}])[0].get('content') or data.get('output') or str(data)
+
+
+# def call_gemini(prompt: str, max_tokens: int = 1024, retries: int = 2) -> Optional[str]:
+#     """Call Gemini using the official client if available, otherwise REST. Returns model text or None."""
+#     last_exc = None
+#     for attempt in range(1, retries + 1):
+#         try:
+#             if _HAS_GOOGLE_CLIENT and API_KEY:
+#                 out = _call_google_client(prompt, max_tokens=max_tokens)
+#                 if out:
+#                     return out
+#             # fallback to REST
+#             out = _call_rest(prompt, max_tokens=max_tokens)
+#             if out:
+#                 return out
+#         except Exception as e:
+#             last_exc = e
+#             time.sleep(0.6 * attempt)
+#     if last_exc:
+#         raise last_exc
+#     return None
 def _call_rest(prompt: str, max_tokens: int = 1024) -> Optional[str]:
     if not API_KEY:
         return None
-    url = f"https://generativelanguage.googleapis.com/v1beta2/models/{MODEL}:generateText?key={API_KEY}"
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL}:generateContent?key={API_KEY}"
     payload = {
-        'prompt': prompt,
-        'maxOutputTokens': max_tokens,
+        "contents": [
+            {
+                "role": "user",
+                "parts": [{"text": prompt}]
+            }
+        ],
+        "generationConfig": {
+            "maxOutputTokens": max_tokens
+        }
     }
-    headers = {'Content-Type': 'application/json'}
+
+    headers = {"Content-Type": "application/json"}
+
     resp = requests.post(url, json=payload, headers=headers, timeout=30)
+
     if resp.status_code != 200:
-        raise Exception(f'Gemini API error: {resp.status_code} {resp.text}')
+        raise Exception(f"Gemini API error: {resp.status_code} {resp.text}")
+
     data = resp.json()
-    return data.get('candidates', [{}])[0].get('content') or data.get('output') or str(data)
+    return data["candidates"][0]["content"]["parts"][0].get("text", "")
 
-
-def call_gemini(prompt: str, max_tokens: int = 1024, retries: int = 2) -> Optional[str]:
-    """Call Gemini using the official client if available, otherwise REST. Returns model text or None."""
-    last_exc = None
-    for attempt in range(1, retries + 1):
-        try:
-            if _HAS_GOOGLE_CLIENT and API_KEY:
-                out = _call_google_client(prompt, max_tokens=max_tokens)
-                if out:
-                    return out
-            # fallback to REST
-            out = _call_rest(prompt, max_tokens=max_tokens)
-            if out:
-                return out
-        except Exception as e:
-            last_exc = e
-            time.sleep(0.6 * attempt)
-    if last_exc:
-        raise last_exc
-    return None
 
 
 def generate_materials(transcript: str, topic: str):
