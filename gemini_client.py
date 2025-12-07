@@ -261,25 +261,25 @@ def _call_google_client(prompt: str, max_tokens: int = 1024) -> Optional[str]:
 #     return data.get('candidates', [{}])[0].get('content') or data.get('output') or str(data)
 
 
-# def call_gemini(prompt: str, max_tokens: int = 1024, retries: int = 2) -> Optional[str]:
-#     """Call Gemini using the official client if available, otherwise REST. Returns model text or None."""
-#     last_exc = None
-#     for attempt in range(1, retries + 1):
-#         try:
-#             if _HAS_GOOGLE_CLIENT and API_KEY:
-#                 out = _call_google_client(prompt, max_tokens=max_tokens)
-#                 if out:
-#                     return out
-#             # fallback to REST
-#             out = _call_rest(prompt, max_tokens=max_tokens)
-#             if out:
-#                 return out
-#         except Exception as e:
-#             last_exc = e
-#             time.sleep(0.6 * attempt)
-#     if last_exc:
-#         raise last_exc
-#     return None
+def call_gemini(prompt: str, max_tokens: int = 1024, retries: int = 2) -> Optional[str]:
+    """Call Gemini using the official client if available, otherwise REST. Returns model text or None."""
+    last_exc = None
+    for attempt in range(1, retries + 1):
+        try:
+            if _HAS_GOOGLE_CLIENT and API_KEY:
+                out = _call_google_client(prompt, max_tokens=max_tokens)
+                if out:
+                    return out
+            # fallback to REST
+            out = _call_rest(prompt, max_tokens=max_tokens)
+            if out:
+                return out
+        except Exception as e:
+            last_exc = e
+            time.sleep(0.6 * attempt)
+    if last_exc:
+        raise last_exc
+    return None
 def _call_rest(prompt: str, max_tokens: int = 1024) -> Optional[str]:
     if not API_KEY:
         return None
