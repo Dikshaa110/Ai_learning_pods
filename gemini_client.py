@@ -18,7 +18,7 @@ except Exception:
 
 API_KEY = os.getenv("GOOGLE_API_KEY")
 
-MODEL = os.environ.get('GEN_MODEL', 'Gemini-2.5-Flash-Lite')
+MODEL = os.environ.get('GEN_MODEL', 'gemini-1.5-flash')
 
 
 def _extract_json(text: str) -> Optional[str]:
