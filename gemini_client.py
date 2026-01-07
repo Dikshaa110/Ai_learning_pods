@@ -484,35 +484,101 @@ def _call_google_client(prompt: str, max_tokens: int = 512) -> Optional[str]:
     except Exception:
         return None
 
+# def _call_rest(prompt: str, max_tokens: int = 512) -> Optional[str]:
+#     if not API_KEY:
+#         return None
+#     url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL}:generateContent?key={API_KEY}"
+#     payload = {
+#         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+#         "generationConfig": {"maxOutputTokens": max_tokens}
+#     }
+#     headers = {"Content-Type": "application/json"}
+#     resp = requests.post(url, json=payload, headers=headers, timeout=30)
+#     if resp.status_code != 200:
+#         raise Exception(f"Gemini API error: {resp.status_code} {resp.text}")
+#     data = resp.json()
+#     return data["candidates"][0]["content"]["parts"][0].get("text", "")
+
+# def call_gemini(prompt: str, max_tokens: int = 512, retries: int = 2) -> Optional[str]:
+#     last_exc = None
+#     for attempt in range(1, retries + 1):
+#         try:
+#             if _HAS_GOOGLE_CLIENT and API_KEY:
+#                 out = _call_google_client(prompt, max_tokens=max_tokens)
+#                 if out: return out
+#             out = _call_rest(prompt, max_tokens=max_tokens)
+#             if out: return out
+#         except Exception as e:
+#             last_exc = e
+#             time.sleep(0.5 * attempt)
+#     if last_exc: raise last_exc
+#     return None
 def _call_rest(prompt: str, max_tokens: int = 512) -> Optional[str]:
     if not API_KEY:
         return None
+
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL}:generateContent?key={API_KEY}"
+
     payload = {
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
         "generationConfig": {"maxOutputTokens": max_tokens}
     }
+
     headers = {"Content-Type": "application/json"}
+
     resp = requests.post(url, json=payload, headers=headers, timeout=30)
+
+    # ---- handle non-200 cleanly ----
+    if resp.status_code == 429:
+        # do NOT retry on quota exhausted
+        raise RuntimeError(RATE_LIMIT_MESSAGE)
+
+    if resp.status_code == 503:
+        # transient overload, caller may retry
+        raise RuntimeError("Gemini servers overloaded. Please retry shortly.")
+
     if resp.status_code != 200:
-        raise Exception(f"Gemini API error: {resp.status_code} {resp.text}")
+        raise RuntimeError(f"Gemini API error: {resp.status_code}: {resp.text}")
+
     data = resp.json()
     return data["candidates"][0]["content"]["parts"][0].get("text", "")
-
-def call_gemini(prompt: str, max_tokens: int = 512, retries: int = 2) -> Optional[str]:
+    def call_gemini(prompt: str, max_tokens: int = 512, retries: int = 2) -> Optional[str]:
     last_exc = None
+
     for attempt in range(1, retries + 1):
         try:
+            # try official client first
             if _HAS_GOOGLE_CLIENT and API_KEY:
                 out = _call_google_client(prompt, max_tokens=max_tokens)
-                if out: return out
+                if out:
+                    return out
+
+            # REST fallback
             out = _call_rest(prompt, max_tokens=max_tokens)
-            if out: return out
+            if out:
+                return out
+
+        except RuntimeError as e:
+            message = str(e)
+
+            # ---- DO NOT SLEEP / RETRY FOR QUOTA LIMIT ----
+            if "quota exceeded" in message.lower():
+                # raise immediately so Flask returns response quickly
+                raise
+
+            # ---- only retry transient errors ----
+            last_exc = e
+            time.sleep(min(2 * attempt, 5))  # short non-blocking backoff
+
         except Exception as e:
             last_exc = e
-            time.sleep(0.5 * attempt)
-    if last_exc: raise last_exc
+            time.sleep(1)
+
+    if last_exc:
+        raise last_exc
+
     return None
+
 
 
 # -----------------------
