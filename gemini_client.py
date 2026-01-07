@@ -542,7 +542,9 @@ def _call_rest(prompt: str, max_tokens: int = 512) -> Optional[str]:
 
     data = resp.json()
     return data["candidates"][0]["content"]["parts"][0].get("text", "")
-    def call_gemini(prompt: str, max_tokens: int = 512, retries: int = 2) -> Optional[str]:
+
+
+def call_gemini(prompt: str, max_tokens: int = 512, retries: int = 2) -> Optional[str]:
     last_exc = None
 
     for attempt in range(1, retries + 1):
@@ -578,6 +580,7 @@ def _call_rest(prompt: str, max_tokens: int = 512) -> Optional[str]:
         raise last_exc
 
     return None
+
 
 
 
